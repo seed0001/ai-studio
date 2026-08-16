@@ -5,14 +5,15 @@ import { OpenRouterMusicProvider } from "@/lib/music/openrouter";
 import { saveAudio } from "@/lib/storage";
 
 const requestSchema = z.object({
-  prompt: z.string().min(3).max(2000),
+  prompt: z.string().min(3).max(8000),
   modelId: z.string().min(1),
 });
 
 export async function POST(req: NextRequest) {
   const parsed = requestSchema.safeParse(await req.json());
   if (!parsed.success) {
-    return NextResponse.json({ error: "Invalid request" }, { status: 400 });
+    const message = parsed.error.issues[0]?.message ?? "Invalid request";
+    return NextResponse.json({ error: message }, { status: 400 });
   }
 
   const model = getMusicModel(parsed.data.modelId);
