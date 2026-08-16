@@ -4,6 +4,11 @@ import Resend from "next-auth/providers/resend";
 import { PrismaAdapter } from "@auth/prisma-adapter";
 import { db } from "@/lib/db";
 
+const ADMIN_EMAILS = (process.env.ADMIN_EMAILS ?? "")
+  .split(",")
+  .map((email) => email.trim().toLowerCase())
+  .filter(Boolean);
+
 export const { handlers, auth, signIn, signOut } = NextAuth({
   adapter: PrismaAdapter(db),
   session: { strategy: "database" },
@@ -25,6 +30,16 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       const userCount = await db.user.count();
       if (userCount === 1) {
         await db.user.update({ where: { id: user.id }, data: { role: "ADMIN" } });
+      }
+    },
+    async signIn({ user }) {
+      // Emails in ADMIN_EMAILS are always granted admin, on every sign-in —
+      // covers accounts created before the env var was set, self-healing.
+      if (user.email && ADMIN_EMAILS.includes(user.email.toLowerCase())) {
+        await db.user.updateMany({
+          where: { id: user.id, role: { not: "ADMIN" } },
+          data: { role: "ADMIN" },
+        });
       }
     },
   },
