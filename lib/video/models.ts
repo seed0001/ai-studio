@@ -6,6 +6,11 @@ export interface VideoModelOption {
 
 export const VIDEO_MODELS: VideoModelOption[] = [
   {
+    id: "google/veo-3.1-lite",
+    name: "Veo 3.1 Lite",
+    pricePerSecond: 0.05,
+  },
+  {
     id: "bytedance/seedance-2.0-mini",
     name: "Seedance 2.0 Mini",
     pricePerSecond: 0.01345,
