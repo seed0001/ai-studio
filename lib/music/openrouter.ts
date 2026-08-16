@@ -6,16 +6,14 @@ import type {
 
 const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
 
-interface OpenRouterChatAudioOutput {
-  data: string;
-  format?: string;
-  id?: string;
-}
-
-interface OpenRouterChatCompletionResponse {
+interface OpenRouterStreamChunk {
   choices?: Array<{
-    message?: {
-      audio?: OpenRouterChatAudioOutput;
+    delta?: {
+      audio?: {
+        data?: string;
+        format?: string;
+        id?: string;
+      };
     };
   }>;
   error?: { message: string };
@@ -47,26 +45,74 @@ export class OpenRouterMusicProvider implements MusicProvider {
         model,
         modalities: ["text", "audio"],
         audio: { format: "mp3" },
+        // Audio-output models on OpenRouter reject non-streaming requests
+        // ("Audio output requires stream: true") — the audio comes back as
+        // base64 chunks spread across SSE deltas that we reassemble below.
+        stream: true,
         messages: [{ role: "user", content: prompt }],
       }),
     });
 
-    const json = (await response.json()) as OpenRouterChatCompletionResponse;
-
-    if (!response.ok) {
-      throw new Error(
-        json.error?.message ?? `OpenRouter request failed (${response.status})`,
-      );
+    if (!response.ok || !response.body) {
+      const text = await response.text().catch(() => "");
+      let message = `OpenRouter request failed (${response.status})`;
+      try {
+        message = (JSON.parse(text) as { error?: { message: string } }).error
+          ?.message ?? message;
+      } catch {
+        if (text) message = text.slice(0, 500);
+      }
+      throw new Error(message);
     }
 
-    const audio = json.choices?.[0]?.message?.audio;
-    if (!audio?.data) {
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    const audioChunks: Buffer[] = [];
+    let format: string | undefined;
+    let buffer = "";
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+
+      let newlineIndex: number;
+      while ((newlineIndex = buffer.indexOf("\n")) !== -1) {
+        const line = buffer.slice(0, newlineIndex).trim();
+        buffer = buffer.slice(newlineIndex + 1);
+
+        if (!line.startsWith("data:")) continue;
+        const data = line.slice(5).trim();
+        if (data === "[DONE]") continue;
+
+        let chunk: OpenRouterStreamChunk;
+        try {
+          chunk = JSON.parse(data);
+        } catch {
+          continue;
+        }
+
+        if (chunk.error) {
+          throw new Error(chunk.error.message);
+        }
+
+        const audio = chunk.choices?.[0]?.delta?.audio;
+        if (audio?.data) {
+          audioChunks.push(Buffer.from(audio.data, "base64"));
+        }
+        if (audio?.format) {
+          format = audio.format;
+        }
+      }
+    }
+
+    if (audioChunks.length === 0) {
       throw new Error("OpenRouter response did not include audio data");
     }
 
     return {
-      audio: Buffer.from(audio.data, "base64"),
-      format: audio.format ?? "mp3",
+      audio: Buffer.concat(audioChunks),
+      format: format ?? "mp3",
     };
   }
 }
