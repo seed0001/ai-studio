@@ -8,7 +8,7 @@ slice.)
 ## Stack
 
 - Next.js 16 (App Router, TypeScript, Tailwind)
-- Local disk storage (`public/songs/`) — on Railway this is a mounted volume
+- Local disk storage (`data/songs/`) — on Railway this is a mounted volume
   so files survive redeploys; only the most recent 3 songs are kept
 - OpenRouter — `google/lyria-3-pro-preview` / `google/lyria-3-clip-preview`
 
@@ -44,13 +44,16 @@ slice.)
   thinly-documented feature — the audio comes back streamed (`stream: true`,
   reassembled from SSE deltas in `openrouter.ts`), since non-streaming
   requests are rejected. Re-verify the delta shape if this starts failing.
-- Storage (`lib/storage.ts`) writes generated files to `public/songs/`, which
-  Next.js serves directly at `/songs/<file>`. After each generation it deletes
-  the oldest files beyond the 3 most recent (`MAX_SONGS` in `storage.ts`).
-  Locally this directory is just a normal (gitignored) folder; in production
-  it's a Railway volume mounted at `/app/public/songs` on the `web` service,
-  so files persist across deploys instead of vanishing when the container
-  restarts.
+- Storage (`lib/storage.ts`) writes generated files to `data/songs/`, served
+  through `app/songs/[filename]/route.ts` at `/songs/<file>` — deliberately
+  not under `public/`, since Next's static file serving for `public/` appears
+  to work off a build-time snapshot and won't pick up files written there at
+  runtime (confirmed: the file existed on disk but 404'd). After each
+  generation, the oldest files beyond the 3 most recent are deleted
+  (`MAX_SONGS` in `storage.ts`). Locally this directory is just a normal
+  (gitignored) folder; in production it's a Railway volume mounted at
+  `/app/data/songs` on the `web` service, so files persist across deploys
+  instead of vanishing when the container restarts.
 - There's still no database: nothing is recorded outside the 3 files
   currently on disk. Refresh the page and older generations you didn't save
   are only recoverable by browsing `/songs/<file>` directly if you still

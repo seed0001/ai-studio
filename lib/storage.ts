@@ -2,7 +2,10 @@ import { mkdir, readdir, stat, unlink, writeFile } from "fs/promises";
 import path from "path";
 import { randomUUID } from "crypto";
 
-const SONGS_DIR = path.join(process.cwd(), "public", "songs");
+// Deliberately outside public/ — Next's static file serving for public/
+// appears to work off a build-time snapshot and won't serve files written
+// at runtime, so these are served through app/songs/[filename]/route.ts.
+const SONGS_DIR = path.join(process.cwd(), "data", "songs");
 const MAX_SONGS = 3;
 
 export async function saveAudio(audio: Buffer, format: string): Promise<string> {
@@ -17,13 +20,14 @@ export async function saveAudio(audio: Buffer, format: string): Promise<string> 
 }
 
 async function enforceRetention() {
-  const entries = await readdir(SONGS_DIR);
-  if (entries.length <= MAX_SONGS) return;
+  const entries = await readdir(SONGS_DIR, { withFileTypes: true });
+  const files = entries.filter((entry) => entry.isFile());
+  if (files.length <= MAX_SONGS) return;
 
   const withTimes = await Promise.all(
-    entries.map(async (name) => {
-      const info = await stat(path.join(SONGS_DIR, name));
-      return { name, mtime: info.mtimeMs };
+    files.map(async (entry) => {
+      const info = await stat(path.join(SONGS_DIR, entry.name));
+      return { name: entry.name, mtime: info.mtimeMs };
     }),
   );
 
@@ -33,4 +37,8 @@ async function enforceRetention() {
   await Promise.all(
     toDelete.map((file) => unlink(path.join(SONGS_DIR, file.name))),
   );
+}
+
+export function songPath(filename: string): string {
+  return path.join(SONGS_DIR, filename);
 }

@@ -42,4 +42,4 @@ yarn-error.log*
 next-env.d.ts
 
 # generated audio (local dev only — a Railway volume covers production)
-/public/songs
+/data/songs
