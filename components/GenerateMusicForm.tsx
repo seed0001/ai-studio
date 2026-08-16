@@ -1,23 +1,15 @@
 "use client";
 
 import { useState } from "react";
-import { useRouter } from "next/navigation";
 import { AudioPlayer } from "@/components/AudioPlayer";
 import type { MusicModelOption } from "@/lib/music/models";
 
-interface GenerationResult {
-  id: string;
-  audioUrl: string | null;
-  status: string;
-}
-
 export function GenerateMusicForm({ models }: { models: MusicModelOption[] }) {
-  const router = useRouter();
   const [prompt, setPrompt] = useState("");
   const [modelId, setModelId] = useState(models[0]?.id ?? "");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [result, setResult] = useState<GenerationResult | null>(null);
+  const [audioUrl, setAudioUrl] = useState<string | null>(null);
 
   const selectedModel = models.find((model) => model.id === modelId);
 
@@ -25,7 +17,7 @@ export function GenerateMusicForm({ models }: { models: MusicModelOption[] }) {
     e.preventDefault();
     setLoading(true);
     setError(null);
-    setResult(null);
+    setAudioUrl(null);
 
     const res = await fetch("/api/generate/music", {
       method: "POST",
@@ -41,8 +33,7 @@ export function GenerateMusicForm({ models }: { models: MusicModelOption[] }) {
       return;
     }
 
-    setResult(data.generation);
-    router.refresh();
+    setAudioUrl(data.audioUrl);
   }
 
   return (
@@ -76,7 +67,7 @@ export function GenerateMusicForm({ models }: { models: MusicModelOption[] }) {
         >
           {models.map((model) => (
             <option key={model.id} value={model.id}>
-              {model.name} · {model.creditsCost} credits
+              {model.name}
             </option>
           ))}
         </select>
@@ -97,9 +88,9 @@ export function GenerateMusicForm({ models }: { models: MusicModelOption[] }) {
         {loading ? "Generating…" : "Generate"}
       </button>
 
-      {result?.audioUrl && (
+      {audioUrl && (
         <div className="pt-2">
-          <AudioPlayer src={result.audioUrl} />
+          <AudioPlayer src={audioUrl} />
         </div>
       )}
     </form>
