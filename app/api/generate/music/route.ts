@@ -1,9 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
-import { randomUUID } from "crypto";
 import { z } from "zod";
 import { getMusicModel } from "@/lib/music/models";
 import { OpenRouterMusicProvider } from "@/lib/music/openrouter";
-import { uploadAudio } from "@/lib/r2";
+import { saveAudio } from "@/lib/storage";
 
 const requestSchema = z.object({
   prompt: z.string().min(3).max(2000),
@@ -28,11 +27,7 @@ export async function POST(req: NextRequest) {
       model: model.id,
     });
 
-    const audioUrl = await uploadAudio(
-      `generations/${randomUUID()}.${result.format}`,
-      result.audio,
-      result.format,
-    );
+    const audioUrl = await saveAudio(result.audio, result.format);
 
     return NextResponse.json({ audioUrl });
   } catch (err) {

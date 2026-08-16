@@ -8,7 +8,8 @@ slice.)
 ## Stack
 
 - Next.js 16 (App Router, TypeScript, Tailwind)
-- Cloudflare R2 — generated audio storage
+- Local disk storage (`public/songs/`) — on Railway this is a mounted volume
+  so files survive redeploys; only the most recent 3 songs are kept
 - OpenRouter — `google/lyria-3-pro-preview` / `google/lyria-3-clip-preview`
 
 ## Setup
@@ -25,9 +26,7 @@ slice.)
    cp .env.example .env
    ```
 
-   You'll need:
-   - An OpenRouter API key (`OPENROUTER_API_KEY`)
-   - Cloudflare R2 credentials + bucket (`R2_*`)
+   You'll need an OpenRouter API key (`OPENROUTER_API_KEY`).
 
 3. **Run the dev server**
 
@@ -42,14 +41,21 @@ slice.)
 - Music generation is wrapped behind `MusicProvider` (`lib/music/provider.ts`)
   so the OpenRouter integration (`lib/music/openrouter.ts`) can be swapped or
   adjusted in one place. OpenRouter's Lyria 3 audio-output support is a newer,
-  thinly-documented feature — verify the response shape with a real API key
-  before relying on it in production, and adjust `openrouter.ts` if the
-  `message.audio` field differs from what's assumed there.
-- There's no persistence: generated audio is uploaded to R2 and the URL is
-  returned directly to the browser, but nothing is recorded anywhere. If you
-  navigate away, the file still exists in R2 (find it by browsing the
-  bucket), but the app has no memory of it.
-- Accounts, credits, Stripe billing, and an admin role existed in an earlier
-  version of this app and were deliberately stripped out to keep this a
-  simple, ungated generator. That code is recoverable from git history
+  thinly-documented feature — the audio comes back streamed (`stream: true`,
+  reassembled from SSE deltas in `openrouter.ts`), since non-streaming
+  requests are rejected. Re-verify the delta shape if this starts failing.
+- Storage (`lib/storage.ts`) writes generated files to `public/songs/`, which
+  Next.js serves directly at `/songs/<file>`. After each generation it deletes
+  the oldest files beyond the 3 most recent (`MAX_SONGS` in `storage.ts`).
+  Locally this directory is just a normal (gitignored) folder; in production
+  it's a Railway volume mounted at `/app/public/songs` on the `web` service,
+  so files persist across deploys instead of vanishing when the container
+  restarts.
+- There's still no database: nothing is recorded outside the 3 files
+  currently on disk. Refresh the page and older generations you didn't save
+  are only recoverable by browsing `/songs/<file>` directly if you still
+  have the URL.
+- Accounts, credits, Stripe billing, R2 storage, and an admin role existed in
+  an earlier version of this app and were deliberately stripped out to keep
+  this a simple, ungated generator. That code is recoverable from git history
   (`git log`) if/when accounts come back.
