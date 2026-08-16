@@ -1,5 +1,5 @@
 import { MUSIC_MODELS } from "@/lib/music/models";
-import { GenerateMusicForm } from "@/components/GenerateMusicForm";
+import { GeneratorTabs } from "@/components/GeneratorTabs";
 
 export default function Home() {
   return (
@@ -10,7 +10,7 @@ export default function Home() {
           Describe a song, pick a model, generate.
         </p>
       </div>
-      <GenerateMusicForm models={MUSIC_MODELS} />
+      <GeneratorTabs models={MUSIC_MODELS} />
     </div>
   );
 }
