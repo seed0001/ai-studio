@@ -3,7 +3,7 @@ import { randomUUID } from "crypto";
 import { z } from "zod";
 import { getMusicModel } from "@/lib/music/models";
 import { createJob } from "@/lib/video-jobs";
-import { runVideoSongPipeline } from "@/lib/video-song-pipeline";
+import { planVideoSong } from "@/lib/video-song-pipeline";
 
 const requestSchema = z.object({
   prompt: z.string().min(3).max(8000),
@@ -24,12 +24,14 @@ export async function POST(req: NextRequest) {
   }
 
   const jobId = randomUUID();
-  createJob(jobId);
+  createJob(jobId, { prompt, musicModelId });
 
   // Fire-and-forget: this keeps running in the background within the
   // long-lived Node process after we respond. Relies on Railway's
   // always-on container — would not work as-is on a serverless host.
-  void runVideoSongPipeline({ jobId, prompt, musicModelId });
+  // This only plans (song + shot list) — actual scene video generation
+  // is a separate, explicit step the user triggers after reviewing.
+  void planVideoSong(jobId);
 
   return NextResponse.json({ jobId }, { status: 202 });
 }

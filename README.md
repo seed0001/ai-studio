@@ -52,34 +52,59 @@ and full episodes are the eventual direction; this is the first two slices.)
 
 ### Music video
 
-- One prompt drives both the song and every video scene — describe the song
-  *and* the character/visual style together, since there's no separate field
-  for each.
-- Pipeline (`lib/video-song-pipeline.ts`): generate the song → probe its real
-  duration (Lyria doesn't report one) via `ffprobe` → split into ~10s scenes
-  → generate scene 1 from the prompt alone → extract a reference frame from
-  it → generate the remaining scenes in parallel, each anchored to that frame
-  via OpenRouter's `input_references[]` for character/style consistency →
-  concat all scenes and mux in the song audio via `ffmpeg` → save.
-- This is genuinely unverified against a live API call as of this writing —
-  same situation the audio integration was in before its first real test.
-  Specifically unconfirmed: whether `input_references[].image_url.url`
-  accepts a base64 data URI (what `lib/video/openrouter.ts` currently sends)
-  or requires a hosted URL, and the exact `supported_durations` Seedance 2.0
-  Mini returns from `/api/v1/videos/models` (queried at runtime rather than
-  hardcoded, specifically to avoid guessing wrong). **Test with the Clip
-  song length first** — fewer, cheaper scenes — before trying a full song.
+One prompt drives the song and the video's overall look — describe the song
+*and* the character/visual style together. The flow is a pausable, editable
+storyboard (mirroring the review/regenerate pattern from the movieMaker
+project) rather than one fire-and-forget request:
+
+1. **Plan** (`POST /api/generate/video-song`) — generates the song, probes
+   its real duration via `ffprobe` (Lyria doesn't report one), splits it into
+   ~10s scenes, and asks a cheap text model (`lib/video/shot-list.ts`) to
+   turn the one prompt into a *distinct* description per scene — without
+   this, every scene got near-identical content and looked repetitive even
+   once stitched correctly. Job status becomes `"ready"` once this
+   completes; no video generation has happened yet.
+2. **Review & edit** — the frontend (`VideoStoryboardEditor.tsx`) shows one
+   card per scene with an editable description
+   (`PATCH .../scenes/[index]`). Edits take effect on the *next* generation
+   of that scene, not retroactively.
+3. **Generate** (`POST .../generate`) — generates a first take for every
+   scene. Scene 0 runs alone first (it has no reference image and
+   establishes the character/style); a still frame gets extracted from
+   *whichever take of scene 0 is currently approved* and used to anchor
+   every other scene via OpenRouter's `frame_images[]` (`frame_type:
+   "first_frame"`) for visual consistency — not `input_references[]`, which
+   isn't supported by every provider integration (confirmed: Veo 3.1 Lite
+   rejects it). Scenes 1..N then generate in parallel.
+4. **Regenerate / approve individual takes** — `POST
+   .../scenes/[index]/regenerate` adds a *new* take rather than replacing
+   the old one (same as movieMaker); `POST .../scenes/[index]/approve` picks
+   which take is currently "the" one for that scene. Nothing is deleted, so
+   you can always go back to an earlier take.
+5. **Stitch** (`POST .../stitch`) — concatenates whichever take is currently
+   approved per scene with the song audio via `ffmpeg`. Idempotent — re-run
+   any time takes change to get an updated final video.
+- Scene clips can come back at different resolutions/frame rates depending
+  on generation mode (scene 0's pure text-to-video vs. the rest's
+  image-to-video), so `concatAndMux` (`lib/ffmpeg.ts`) normalizes every clip
+  to one resolution via a `filter_complex` re-encode rather than a
+  stream-copy concat — the latter silently produced broken/looping output
+  when inputs didn't match (confirmed via a live test).
 - Cost adds up fast relative to audio-only generation: video runs roughly
-  $0.0135/scene-second on the default model, so a ~150s full song (≈15
-  scenes at 10s each) costs a few dollars in video generation alone, on top
-  of the song itself. The clip length (~30s, ~3 scenes) is far cheaper for
-  testing.
+  $0.05/scene-second on the default model (Veo 3.1 Lite, without audio), so
+  a ~150s full song (≈15 scenes at 10s each) costs several dollars in video
+  generation alone. The Clip song length (~30s, ~3 scenes) is far cheaper
+  for testing.
 - Job state (`lib/video-jobs.ts`) is an **in-memory** map, not a database —
-  the frontend polls `GET /api/generate/video-song/[jobId]` every 3s while a
-  job runs. A job in progress is lost if the container restarts or redeploys
-  mid-run. The whole pipeline runs as a fire-and-forget background task
-  after the initial POST responds (`void runVideoSongPipeline(...)` in
-  `app/api/generate/video-song/route.ts`) — this relies on Railway's
+  a job now spans an entire editing session (plan → edit → regenerate →
+  re-stitch, potentially hours), so its working files (song + every scene
+  take) live in `lib/job-storage.ts` under `data/jobs/<jobId>/` on the same
+  persistent volume, served via `app/jobs/[jobId]/[filename]/route.ts`,
+  rather than a temp dir cleaned up after one request. A job in progress —
+  in-memory state *and* its on-disk files — is lost if the container
+  restarts mid-session; oldest job directories beyond a cap are pruned when
+  new ones are created. Each pipeline step runs as a fire-and-forget
+  background task after its request responds — this relies on Railway's
   always-on container keeping the process alive; it would not work as-is on
   a serverless host.
 

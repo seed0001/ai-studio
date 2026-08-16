@@ -1,53 +1,20 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
 import type { MusicModelOption } from "@/lib/music/models";
-import type { VideoJob } from "@/lib/video-jobs";
-
-const POLL_INTERVAL_MS = 3000;
+import { VideoStoryboardEditor } from "@/components/VideoStoryboardEditor";
 
 export function GenerateVideoForm({ models }: { models: MusicModelOption[] }) {
   const [prompt, setPrompt] = useState("");
   const [musicModelId, setMusicModelId] = useState(models[0]?.id ?? "");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [job, setJob] = useState<VideoJob | null>(null);
-  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
-
-  useEffect(() => {
-    return () => {
-      if (pollRef.current) clearInterval(pollRef.current);
-    };
-  }, []);
-
-  function stopPolling() {
-    if (pollRef.current) {
-      clearInterval(pollRef.current);
-      pollRef.current = null;
-    }
-  }
-
-  async function pollJob(jobId: string) {
-    const res = await fetch(`/api/generate/video-song/${jobId}`);
-    const data = await res.json();
-
-    if (!res.ok) {
-      setError(data.error ?? "Something went wrong");
-      stopPolling();
-      return;
-    }
-
-    setJob(data.job);
-    if (data.job.status !== "running") {
-      stopPolling();
-    }
-  }
+  const [jobId, setJobId] = useState<string | null>(null);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setSubmitting(true);
     setError(null);
-    setJob(null);
 
     const res = await fetch("/api/generate/video-song", {
       method: "POST",
@@ -63,11 +30,14 @@ export function GenerateVideoForm({ models }: { models: MusicModelOption[] }) {
       return;
     }
 
-    pollRef.current = setInterval(() => pollJob(data.jobId), POLL_INTERVAL_MS);
-    pollJob(data.jobId);
+    setJobId(data.jobId);
   }
 
-  const isRunning = job?.status === "running";
+  if (jobId) {
+    return (
+      <VideoStoryboardEditor jobId={jobId} onStartOver={() => setJobId(null)} />
+    );
+  }
 
   return (
     <form
@@ -79,8 +49,9 @@ export function GenerateVideoForm({ models }: { models: MusicModelOption[] }) {
           Prompt
         </label>
         <p className="mt-1 text-xs text-neutral-500">
-          Describe the song and the character/visual style — both drive the
-          video, which reuses this same description for every scene.
+          Describe the song and the character/visual style. Once the song and
+          scene plan are ready, you can edit and regenerate individual scenes
+          before the final video is stitched together.
         </p>
         <textarea
           value={prompt}
@@ -118,23 +89,11 @@ export function GenerateVideoForm({ models }: { models: MusicModelOption[] }) {
 
       <button
         type="submit"
-        disabled={submitting || isRunning || !musicModelId}
+        disabled={submitting || !musicModelId}
         className="w-full rounded-lg bg-indigo-600 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-indigo-500 disabled:cursor-not-allowed disabled:opacity-50"
       >
-        {submitting || isRunning
-          ? (job?.stage ?? "Starting…")
-          : "Generate music video"}
+        {submitting ? "Starting…" : "Start music video"}
       </button>
-
-      {job?.status === "completed" && job.videoUrl && (
-        <div className="pt-2">
-          <video controls src={job.videoUrl} className="w-full rounded-lg" />
-        </div>
-      )}
-
-      {job?.status === "failed" && (
-        <p className="text-sm text-red-400">{job.error}</p>
-      )}
     </form>
   );
 }
