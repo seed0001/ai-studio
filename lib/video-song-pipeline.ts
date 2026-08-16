@@ -22,6 +22,7 @@ async function waitForScene(
   const deadline = Date.now() + POLL_TIMEOUT_MS;
   while (Date.now() < deadline) {
     const result = await provider.pollScene(jobId);
+    console.log(`[video] scene ${jobId} status=${result.status}`);
     if (result.status === "completed" && result.video) {
       return result.video;
     }
@@ -71,6 +72,7 @@ export async function runVideoSongPipeline(params: {
     await writeFile(audioPath, song.audio);
 
     const duration = await probeDuration(audioPath);
+    console.log(`[video] song duration=${duration}s`);
 
     const videoProvider = new OpenRouterVideoProvider();
     const videoModel = DEFAULT_VIDEO_MODEL;
@@ -79,6 +81,9 @@ export async function runVideoSongPipeline(params: {
     const sceneCount = Math.min(
       MAX_SCENES,
       Math.max(1, Math.ceil(duration / sceneDuration)),
+    );
+    console.log(
+      `[video] supportedDurations=${JSON.stringify(supportedDurations)} sceneDuration=${sceneDuration} sceneCount=${sceneCount}`,
     );
 
     updateJob(jobId, { stage: `Generating scene 1/${sceneCount}…` });
@@ -124,6 +129,7 @@ export async function runVideoSongPipeline(params: {
     updateJob(jobId, { status: "completed", stage: "Done", videoUrl });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Video generation failed";
+    console.error(`[video] pipeline failed for job ${jobId}:`, err);
     updateJob(jobId, { status: "failed", error: message });
   } finally {
     await rm(scratchDir, { recursive: true, force: true });

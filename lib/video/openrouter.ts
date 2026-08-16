@@ -86,13 +86,21 @@ export class OpenRouterVideoProvider implements VideoProvider {
       ];
     }
 
+    console.log(
+      "[video] submitScene request",
+      JSON.stringify({ ...body, input_references: body.input_references ? "[omitted]" : undefined }),
+    );
+
     const response = await fetch(VIDEOS_URL, {
       method: "POST",
       headers: this.headers(),
       body: JSON.stringify(body),
     });
 
-    const json = (await response.json()) as OpenRouterVideoSubmitResponse;
+    const rawText = await response.text();
+    console.log("[video] submitScene response", response.status, rawText.slice(0, 1000));
+
+    const json = JSON.parse(rawText) as OpenRouterVideoSubmitResponse;
 
     if (!response.ok || !json.id) {
       throw new Error(
@@ -108,7 +116,10 @@ export class OpenRouterVideoProvider implements VideoProvider {
       headers: this.headers(),
     });
 
-    const json = (await response.json()) as OpenRouterVideoPollResponse;
+    const rawText = await response.text();
+    console.log("[video] pollScene response", jobId, response.status, rawText.slice(0, 1000));
+
+    const json = JSON.parse(rawText) as OpenRouterVideoPollResponse;
 
     if (!response.ok) {
       throw new Error(json.error?.message ?? `Poll failed (${response.status})`);
