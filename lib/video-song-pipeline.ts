@@ -9,6 +9,7 @@ import type { VideoProvider } from "@/lib/video/provider";
 import { concatAndMux, extractFrame, probeDuration } from "@/lib/ffmpeg";
 import { saveVideo } from "@/lib/storage";
 import { updateJob } from "@/lib/video-jobs";
+import { generateShotList } from "@/lib/video/shot-list";
 
 const TARGET_SCENE_SECONDS = 10;
 const MAX_SCENES = 24;
@@ -42,12 +43,12 @@ function pickSceneDuration(supported: number[]): number {
   );
 }
 
-function scenePrompt(basePrompt: string, index: number, total: number): string {
+function scenePrompt(sceneDescription: string, index: number, total: number): string {
   const continuity =
     index === 0
       ? `This is the opening scene (1 of ${total}) of a continuous music video — establish the character(s) and visual style clearly.`
-      : `This is scene ${index + 1} of ${total} in the same continuous music video — match the character appearance and visual style established in the reference image exactly.`;
-  return `${basePrompt}\n\n${continuity}`;
+      : `This is scene ${index + 1} of ${total} in the same continuous music video — match the character appearance and visual style established in the reference image exactly, while depicting this specific moment.`;
+  return `${sceneDescription}\n\n${continuity}`;
 }
 
 export async function runVideoSongPipeline(params: {
@@ -86,9 +87,22 @@ export async function runVideoSongPipeline(params: {
       `[video] supportedDurations=${JSON.stringify(supportedDurations)} sceneDuration=${sceneDuration} sceneCount=${sceneCount}`,
     );
 
+    updateJob(jobId, { stage: "Planning scenes…" });
+    let sceneDescriptions: string[];
+    try {
+      sceneDescriptions = await generateShotList(prompt, sceneCount);
+      console.log(`[video] shot list: ${JSON.stringify(sceneDescriptions)}`);
+    } catch (err) {
+      console.error(
+        "[video] shot list generation failed, falling back to one repeated description",
+        err,
+      );
+      sceneDescriptions = Array(sceneCount).fill(prompt) as string[];
+    }
+
     updateJob(jobId, { stage: `Generating scene 1/${sceneCount}…` });
     const scene1Submit = await videoProvider.submitScene({
-      prompt: scenePrompt(prompt, 0, sceneCount),
+      prompt: scenePrompt(sceneDescriptions[0], 0, sceneCount),
       model: videoModel.id,
       durationSeconds: sceneDuration,
     });
@@ -103,7 +117,7 @@ export async function runVideoSongPipeline(params: {
     await Promise.all(
       remainingIndices.map(async (index) => {
         const submit = await videoProvider.submitScene({
-          prompt: scenePrompt(prompt, index, sceneCount),
+          prompt: scenePrompt(sceneDescriptions[index], index, sceneCount),
           model: videoModel.id,
           durationSeconds: sceneDuration,
           referenceImage: referenceFrame,
