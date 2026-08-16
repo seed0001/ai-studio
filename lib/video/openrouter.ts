@@ -76,19 +76,26 @@ export class OpenRouterVideoProvider implements VideoProvider {
     };
 
     if (referenceImage) {
-      body.input_references = [
+      // input_references[] isn't supported by every provider integration
+      // (confirmed: rejected for google/veo-3.1-lite with "does not support
+      // image input references"). frame_images[] with frame_type
+      // "first_frame" is the more broadly-supported mechanism — the scene
+      // literally starts from that frame instead of just being style-guided
+      // by it, which is at least as strong a consistency signal.
+      body.frame_images = [
         {
           type: "image_url",
           image_url: {
             url: `data:image/jpeg;base64,${referenceImage.toString("base64")}`,
           },
+          frame_type: "first_frame",
         },
       ];
     }
 
     console.log(
       "[video] submitScene request",
-      JSON.stringify({ ...body, input_references: body.input_references ? "[omitted]" : undefined }),
+      JSON.stringify({ ...body, frame_images: body.frame_images ? "[omitted]" : undefined }),
     );
 
     const response = await fetch(VIDEOS_URL, {
