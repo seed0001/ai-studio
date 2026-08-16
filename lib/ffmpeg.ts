@@ -1,5 +1,5 @@
 import { spawn } from "child_process";
-import { mkdtemp, rm, writeFile } from "fs/promises";
+import { mkdtemp, rm } from "fs/promises";
 import { tmpdir } from "os";
 import path from "path";
 import ffmpegPath from "ffmpeg-static";
@@ -67,6 +67,9 @@ export async function extractFrame(
   ]);
 }
 
+const TARGET_WIDTH = 1280;
+const TARGET_HEIGHT = 720;
+
 export async function concatAndMux(
   videoPaths: string[],
   audioPath: string,
@@ -74,23 +77,34 @@ export async function concatAndMux(
 ): Promise<void> {
   const scratchDir = await mkdtemp(path.join(tmpdir(), "ai-studio-ffmpeg-"));
   try {
-    const listPath = path.join(scratchDir, "concat.txt");
-    const listContents = videoPaths
-      .map((p) => `file '${p.replace(/'/g, "'\\''")}'`)
-      .join("\n");
-    await writeFile(listPath, listContents, "utf8");
-
     const concatenatedPath = path.join(scratchDir, "concatenated.mp4");
+
+    // Scene clips can come back with different resolutions/codecs depending
+    // on generation mode (text-to-video vs. image-to-video from a reference
+    // frame), so a stream-copy concat (`-f concat -c copy`) is fragile —
+    // mismatched inputs can produce a "successfully" written file that
+    // actually just loops/freezes on the first segment during playback.
+    // Normalize every clip to one resolution via filter_complex and
+    // re-encode instead.
+    const inputArgs = videoPaths.flatMap((p) => ["-i", p]);
+    const scaleLabels = videoPaths.map(
+      (_, i) =>
+        `[${i}:v]scale=${TARGET_WIDTH}:${TARGET_HEIGHT}:force_original_aspect_ratio=decrease,pad=${TARGET_WIDTH}:${TARGET_HEIGHT}:(ow-iw)/2:(oh-ih)/2,setsar=1,fps=24[v${i}]`,
+    );
+    const concatInputs = videoPaths.map((_, i) => `[v${i}]`).join("");
+    const filterComplex = `${scaleLabels.join(";")};${concatInputs}concat=n=${videoPaths.length}:v=1:a=0[outv]`;
+
     await run(FFMPEG, [
       "-y",
-      "-f",
-      "concat",
-      "-safe",
-      "0",
-      "-i",
-      listPath,
-      "-c",
-      "copy",
+      ...inputArgs,
+      "-filter_complex",
+      filterComplex,
+      "-map",
+      "[outv]",
+      "-c:v",
+      "libx264",
+      "-pix_fmt",
+      "yuv420p",
       concatenatedPath,
     ]);
 
