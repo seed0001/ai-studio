@@ -52,6 +52,49 @@ function takeFilePath(jobId: string, videoUrl: string): string {
   return jobFilePath(jobId, path.basename(videoUrl));
 }
 
+/** Shared by both the generated-song and uploaded-song paths: once the song
+ * audio is on disk, probe its real duration, split it into scenes, and ask
+ * the shot-list model for a distinct description per scene. */
+async function planScenesFromAudio(jobId: string, audioPath: string, songUrl: string): Promise<void> {
+  const job = getJob(jobId);
+  if (!job) return;
+
+  const duration = await probeDuration(audioPath);
+  console.log(`[video] song duration=${duration}s`);
+
+  const videoProvider = new OpenRouterVideoProvider();
+  const supportedDurations = await videoProvider.getSupportedDurations(DEFAULT_VIDEO_MODEL.id);
+  const sceneDuration = pickSceneDuration(supportedDurations);
+  const sceneCount = Math.min(MAX_SCENES, Math.max(1, Math.ceil(duration / sceneDuration)));
+  console.log(
+    `[video] supportedDurations=${JSON.stringify(supportedDurations)} sceneDuration=${sceneDuration} sceneCount=${sceneCount}`,
+  );
+
+  updateJob(jobId, { stage: "Planning scenes…" });
+  let descriptions: string[];
+  try {
+    descriptions = await generateShotList(job.prompt, sceneCount);
+    console.log(`[video] shot list: ${JSON.stringify(descriptions)}`);
+  } catch (err) {
+    console.error("[video] shot list generation failed, falling back to one repeated description", err);
+    descriptions = Array(sceneCount).fill(job.prompt) as string[];
+  }
+
+  updateJob(jobId, {
+    status: "ready",
+    stage: "Ready for review",
+    songUrl,
+    sceneDurationSeconds: sceneDuration,
+    scenes: descriptions.map((description, index) => ({
+      index,
+      description,
+      status: "idle" as const,
+      takes: [],
+      approvedTakeIndex: null,
+    })),
+  });
+}
+
 /** Song generation + shot-list planning only — no video generation yet. */
 export async function planVideoSong(jobId: string): Promise<void> {
   const job = getJob(jobId);
@@ -68,41 +111,25 @@ export async function planVideoSong(jobId: string): Promise<void> {
     const musicProvider = new OpenRouterMusicProvider();
     const song = await musicProvider.generate({ prompt: job.prompt, model: musicModel.id });
     const audioPath = await saveJobSong(jobId, song.audio, song.format);
+    await planScenesFromAudio(jobId, audioPath, `/jobs/${jobId}/song.${song.format}`);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Planning failed";
+    console.error(`[video] planning failed for job ${jobId}:`, err);
+    updateJob(jobId, { status: "failed", error: message });
+  }
+}
 
-    const duration = await probeDuration(audioPath);
-    console.log(`[video] song duration=${duration}s`);
-
-    const videoProvider = new OpenRouterVideoProvider();
-    const supportedDurations = await videoProvider.getSupportedDurations(DEFAULT_VIDEO_MODEL.id);
-    const sceneDuration = pickSceneDuration(supportedDurations);
-    const sceneCount = Math.min(MAX_SCENES, Math.max(1, Math.ceil(duration / sceneDuration)));
-    console.log(
-      `[video] supportedDurations=${JSON.stringify(supportedDurations)} sceneDuration=${sceneDuration} sceneCount=${sceneCount}`,
-    );
-
-    updateJob(jobId, { stage: "Planning scenes…" });
-    let descriptions: string[];
-    try {
-      descriptions = await generateShotList(job.prompt, sceneCount);
-      console.log(`[video] shot list: ${JSON.stringify(descriptions)}`);
-    } catch (err) {
-      console.error("[video] shot list generation failed, falling back to one repeated description", err);
-      descriptions = Array(sceneCount).fill(job.prompt) as string[];
-    }
-
-    updateJob(jobId, {
-      status: "ready",
-      stage: "Ready for review",
-      songUrl: `/jobs/${jobId}/song.${song.format}`,
-      sceneDurationSeconds: sceneDuration,
-      scenes: descriptions.map((description, index) => ({
-        index,
-        description,
-        status: "idle" as const,
-        takes: [],
-        approvedTakeIndex: null,
-      })),
-    });
+/** Same as planVideoSong, but for a song file the user uploaded instead of
+ * one generated via OpenRouter — skips straight to scene planning. */
+export async function planVideoSongFromUpload(
+  jobId: string,
+  audio: Buffer,
+  format: string,
+): Promise<void> {
+  try {
+    updateJob(jobId, { stage: "Processing uploaded song…" });
+    const audioPath = await saveJobSong(jobId, audio, format);
+    await planScenesFromAudio(jobId, audioPath, `/jobs/${jobId}/song.${format}`);
   } catch (err) {
     const message = err instanceof Error ? err.message : "Planning failed";
     console.error(`[video] planning failed for job ${jobId}:`, err);

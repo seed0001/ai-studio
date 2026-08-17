@@ -3,12 +3,15 @@ import { readFile } from "fs/promises";
 import { jobFilePath } from "@/lib/job-storage";
 
 const JOB_ID_PATTERN = /^[a-f0-9-]+$/i;
-const FILENAME_PATTERN = /^(scene-\d+-take-\d+\.mp4|song\.(mp3|wav))$/;
+const FILENAME_PATTERN = /^(scene-\d+-take-\d+\.mp4|song\.(mp3|wav|m4a|ogg|flac))$/;
 
 const CONTENT_TYPE_BY_EXT: Record<string, string> = {
   mp4: "video/mp4",
   mp3: "audio/mpeg",
   wav: "audio/wav",
+  m4a: "audio/mp4",
+  ogg: "audio/ogg",
+  flac: "audio/flac",
 };
 
 export async function GET(

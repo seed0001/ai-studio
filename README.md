@@ -55,7 +55,18 @@ and full episodes are the eventual direction; this is the first two slices.)
 One prompt drives the song and the video's overall look — describe the song
 *and* the character/visual style together. The flow is a pausable, editable
 storyboard (mirroring the review/regenerate pattern from the movieMaker
-project) rather than one fire-and-forget request:
+project) rather than one fire-and-forget request. Since nothing is kept in a
+database, generated songs/videos age out of the capped library
+(`lib/storage.ts`) — **upload** lets you bring a song or scene clip back in
+rather than losing it for good:
+
+- `POST /api/generate/video-song/upload` (multipart: `prompt`, `audio`) —
+  starts a job from a song file you already have instead of generating one;
+  everything downstream (duration probe, shot list, scene planning) runs the
+  same as the generated path. mp3/wav/m4a/ogg/flac, 50MB max.
+- `POST .../scenes/[index]/upload` (multipart: `video`) — adds an uploaded
+  clip as a new take on a scene, same as a generated take (non-destructive,
+  auto-approved). mp4/mov/webm/mkv, 200MB max.
 
 1. **Plan** (`POST /api/generate/video-song`) — generates the song, probes
    its real duration via `ffprobe` (Lyria doesn't report one), splits it into

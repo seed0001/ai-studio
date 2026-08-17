@@ -54,6 +54,22 @@ export function VideoStoryboardEditor({
     poll();
   }
 
+  async function uploadTake(index: number, file: File) {
+    const form = new FormData();
+    form.set("video", file);
+    const res = await fetch(`/api/generate/video-song/${jobId}/scenes/${index}/upload`, {
+      method: "POST",
+      body: form,
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      setError(data.error ?? "Upload failed");
+      return;
+    }
+    setError(null);
+    poll();
+  }
+
   async function approveTake(index: number, takeIndex: number) {
     await fetch(`/api/generate/video-song/${jobId}/scenes/${index}/approve`, {
       method: "POST",
@@ -151,6 +167,7 @@ export function VideoStoryboardEditor({
             onEdit={(description) => editScene(scene.index, description)}
             onRegenerate={() => regenerateScene(scene.index)}
             onApprove={(takeIndex) => approveTake(scene.index, takeIndex)}
+            onUpload={(file) => uploadTake(scene.index, file)}
           />
         ))}
       </div>
@@ -183,14 +200,17 @@ function SceneCard({
   onEdit,
   onRegenerate,
   onApprove,
+  onUpload,
 }: {
   scene: Scene;
   canGenerate: boolean;
   onEdit: (description: string) => void;
   onRegenerate: () => void;
   onApprove: (takeIndex: number) => void;
+  onUpload: (file: File) => void;
 }) {
   const [text, setText] = useState(scene.description);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
   const dirty = text !== scene.description;
   const approvedTake =
     scene.approvedTakeIndex !== null ? scene.takes[scene.approvedTakeIndex] : undefined;
@@ -249,18 +269,39 @@ function SceneCard({
         </div>
       )}
 
-      <button
-        onClick={onRegenerate}
-        disabled={scene.status === "generating" || !canGenerate}
-        title={!canGenerate ? `Generate scene ${scene.index} first` : undefined}
-        className="mt-3 rounded-lg border border-neutral-700 px-3 py-1.5 text-xs text-neutral-300 transition hover:border-neutral-500 disabled:cursor-not-allowed disabled:opacity-50"
-      >
-        {scene.status === "generating"
-          ? "Generating…"
-          : scene.takes.length === 0
-            ? "Generate"
-            : "Regenerate"}
-      </button>
+      <div className="mt-3 flex flex-wrap items-center gap-2">
+        <button
+          onClick={onRegenerate}
+          disabled={scene.status === "generating" || !canGenerate}
+          title={!canGenerate ? `Generate scene ${scene.index} first` : undefined}
+          className="rounded-lg border border-neutral-700 px-3 py-1.5 text-xs text-neutral-300 transition hover:border-neutral-500 disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          {scene.status === "generating"
+            ? "Generating…"
+            : scene.takes.length === 0
+              ? "Generate"
+              : "Regenerate"}
+        </button>
+
+        <button
+          onClick={() => fileInputRef.current?.click()}
+          disabled={scene.status === "generating"}
+          className="rounded-lg border border-neutral-700 px-3 py-1.5 text-xs text-neutral-300 transition hover:border-neutral-500 disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          Upload video
+        </button>
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="video/mp4,video/quicktime,video/webm,video/x-matroska,.mp4,.mov,.webm,.mkv"
+          className="hidden"
+          onChange={(e) => {
+            const file = e.target.files?.[0];
+            if (file) onUpload(file);
+            e.target.value = "";
+          }}
+        />
+      </div>
     </div>
   );
 }
