@@ -114,7 +114,6 @@ export function VideoStoryboardEditor({
   const allApproved = job.scenes.every((scene) => scene.approvedTakeIndex !== null);
   const anyGenerating =
     job.scenes.some((scene) => scene.status === "generating") || job.status === "stitching";
-  const anchorReady = job.scenes[0]?.approvedTakeIndex !== null;
 
   return (
     <div className="space-y-6">
@@ -145,7 +144,10 @@ export function VideoStoryboardEditor({
           <SceneCard
             key={scene.index}
             scene={scene}
-            canGenerate={scene.index === 0 || anchorReady}
+            canGenerate={
+              scene.index === 0 ||
+              job.scenes[scene.index - 1]?.approvedTakeIndex !== null
+            }
             onEdit={(description) => editScene(scene.index, description)}
             onRegenerate={() => regenerateScene(scene.index)}
             onApprove={(takeIndex) => approveTake(scene.index, takeIndex)}
@@ -250,7 +252,7 @@ function SceneCard({
       <button
         onClick={onRegenerate}
         disabled={scene.status === "generating" || !canGenerate}
-        title={!canGenerate ? "Generate scene 1 first" : undefined}
+        title={!canGenerate ? `Generate scene ${scene.index} first` : undefined}
         className="mt-3 rounded-lg border border-neutral-700 px-3 py-1.5 text-xs text-neutral-300 transition hover:border-neutral-500 disabled:cursor-not-allowed disabled:opacity-50"
       >
         {scene.status === "generating"

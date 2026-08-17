@@ -110,11 +110,13 @@ export async function planVideoSong(jobId: string): Promise<void> {
   }
 }
 
-/** Generates one new take for one scene. Scene 0 has no reference image
- * (it establishes the look); every other scene is anchored to a frame
- * extracted from scene 0's *currently* approved take, re-extracted fresh
- * each call so switching scene 0's approved take affects future
- * regenerations of other scenes without touching already-generated ones. */
+/** Generates one new take for one scene. Scene 0 has no reference image (it
+ * establishes the look); every other scene chains from the *immediately
+ * preceding* scene's currently-approved take, anchored to a frame pulled
+ * from right near its end — not its midpoint — so the next scene picks up
+ * visually where the previous one actually left off. Re-extracted fresh
+ * each call, so re-approving a different take on scene N-1 affects future
+ * regenerations of scene N without touching anything already generated. */
 export async function generateScene(jobId: string, sceneIndex: number): Promise<void> {
   const job = getJob(jobId);
   const scene = job?.scenes[sceneIndex];
@@ -125,14 +127,20 @@ export async function generateScene(jobId: string, sceneIndex: number): Promise<
   try {
     let referenceImage: Buffer | undefined;
     if (sceneIndex > 0) {
-      const anchor = job.scenes[0];
+      const anchor = job.scenes[sceneIndex - 1];
       const anchorTake =
         anchor.approvedTakeIndex !== null ? anchor.takes[anchor.approvedTakeIndex] : undefined;
       if (!anchorTake) {
-        throw new Error("Generate scene 1 first — later scenes anchor to its reference frame");
+        throw new Error(
+          `Generate scene ${sceneIndex} first — this scene chains from its ending frame`,
+        );
       }
       const anchorPath = takeFilePath(jobId, anchorTake.videoUrl);
-      referenceImage = await extractFrame(anchorPath, (job.sceneDurationSeconds ?? 10) / 2);
+      const anchorDuration = await probeDuration(anchorPath);
+      // A hair before the true end avoids seeking past the last decodable
+      // frame (which can return black/empty output with some encoders).
+      const lastFrameAt = Math.max(0, anchorDuration - 0.15);
+      referenceImage = await extractFrame(anchorPath, lastFrameAt);
     }
 
     const videoProvider = new OpenRouterVideoProvider();
@@ -156,8 +164,11 @@ export async function generateScene(jobId: string, sceneIndex: number): Promise<
   }
 }
 
-/** Generates a first take for every scene that doesn't have one yet.
- * Scene 0 always runs first since later scenes need its reference frame. */
+/** Generates a first take for every scene that doesn't have one yet, in
+ * order. Must run sequentially, not in parallel — each scene now chains
+ * from the previous scene's ending frame, so scene N can't start until
+ * scene N-1 has a take. Stops after the first failure rather than letting
+ * every later scene fail too for the same underlying reason. */
 export async function generateAllScenes(jobId: string): Promise<void> {
   const job = getJob(jobId);
   if (!job) return;
@@ -165,11 +176,13 @@ export async function generateAllScenes(jobId: string): Promise<void> {
   const pending = job.scenes.filter((scene) => scene.takes.length === 0).map((scene) => scene.index);
   if (pending.length === 0) return;
 
-  if (pending.includes(0)) {
-    await generateScene(jobId, 0);
+  for (const index of pending) {
+    try {
+      await generateScene(jobId, index);
+    } catch {
+      break;
+    }
   }
-  const rest = pending.filter((index) => index !== 0);
-  await Promise.allSettled(rest.map((index) => generateScene(jobId, index)));
 }
 
 /** Concatenates each scene's currently-approved take with the song audio.
