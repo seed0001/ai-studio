@@ -50,6 +50,35 @@ and full episodes are the eventual direction; this is the first two slices.)
   reassembled from SSE deltas in `openrouter.ts`), since non-streaming
   requests are rejected. Re-verify the delta shape if this starts failing.
 
+#### Style tags
+
+- `lib/music/tags.ts` holds a curated tag palette (genre, mood, vocals,
+  instruments, tempo, era). The `TagPicker` in the music form is optional;
+  selected tags are folded into the prompt as one trailing `Style — …` line
+  by `composePromptWithTags`, server-side, before it reaches the model. The
+  same helper runs for both `/api/generate/music` and `/api/generate/score`
+  so audio and notation are built from an identical brief.
+
+#### Chords & sheet music
+
+- `/api/generate/score` asks a small text model
+  (`lib/score/openrouter.ts`, `anthropic/claude-haiku-4.5`) for a **lead
+  sheet** — key, tempo, a chord-per-bar progression per section, and ABC
+  notation — from the prompt + tags. Lyria returns audio only, so this is an
+  independent reading of the brief, not a transcription of the generated
+  track. Output is validated against `leadSheetSchema` (`lib/score/types.ts`).
+- The `ScorePanel` renders it: chord grid per section, then per-chord
+  guitar + piano shapes from `lib/music/chords.ts` (open-chord dictionary,
+  falling back to a movable E-shape barre; piano voicing is exact), then the
+  engraved staff via **abcjs** (`components/SheetMusic.tsx`, dynamically
+  imported since it touches `window`). Playback appears only when the browser
+  supports Web Audio.
+- **Print** uses a `@media print` block in `globals.css` that hides
+  everything except `.print-area`. `.abc` and MIDI downloads come straight
+  from the ABC string (`abcjs.synth.getMidiFile`).
+- Nothing about the score is persisted — it lives in component state until
+  the page reloads, same as everything else in this app.
+
 ### Music video
 
 One prompt drives the song and the video's overall look — describe the song

@@ -1,13 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { getMusicModel } from "@/lib/music/models";
-import { OpenRouterMusicProvider } from "@/lib/music/openrouter";
 import { composePromptWithTags } from "@/lib/music/tags";
-import { saveAudio } from "@/lib/storage";
+import { generateLeadSheet } from "@/lib/score/openrouter";
 
 const requestSchema = z.object({
   prompt: z.string().min(3).max(8000),
-  modelId: z.string().min(1),
   tags: z.array(z.string().min(1).max(60)).max(40).default([]),
 });
 
@@ -18,21 +15,11 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: message }, { status: 400 });
   }
 
-  const model = getMusicModel(parsed.data.modelId);
-  if (!model) {
-    return NextResponse.json({ error: "Unknown model" }, { status: 400 });
-  }
+  const brief = composePromptWithTags(parsed.data.prompt, parsed.data.tags);
 
   try {
-    const provider = new OpenRouterMusicProvider();
-    const result = await provider.generate({
-      prompt: composePromptWithTags(parsed.data.prompt, parsed.data.tags),
-      model: model.id,
-    });
-
-    const audioUrl = await saveAudio(result.audio, result.format);
-
-    return NextResponse.json({ audioUrl });
+    const leadSheet = await generateLeadSheet(brief);
+    return NextResponse.json({ leadSheet });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Generation failed";
     return NextResponse.json({ error: message }, { status: 502 });
